@@ -1,0 +1,94 @@
+#!/bin/bash
+#VER: 20210302 - 08h41
+#DEP: squashfs-tools schroot genisoimage
+#COM: 
+
+if [ ! "$4" ]
+then
+	{
+		echo "ISOMaker <Folder of Work> <ISO Source File> <Name of ISO> <Output File>"
+		exit
+	}
+fi
+
+export DIR=$1
+export F=$2
+export VNAME=$3
+export ISO=$4
+
+cd $DIR
+mkdir iso squashfs mnt
+
+sudo mount -o loop $F ./mnt
+sudo cp -av ./mnt/. ./iso
+sudo umount ./mnt
+
+sudo mount -t squashfs -o loop iso/casper/filesystem.squashfs ./mnt
+sudo cp -av ./mnt/. ./squashfs
+sudo umount ./mnt
+
+sudo cp -R ./squashfs/etc/skel/* ./squashfs/root/
+
+sudo mount --bind /proc ./squashfs/proc
+sudo mount --bind /sys ./squashfs/sys
+sudo mount -t devpts ./squashfs/dev/pts
+sudo mount --bind /dev ./squashfs/dev
+sudo mount --bind /dev/pts ./squashfs/dev/pts
+sudo mount --bind /var/run/dbus/ ./squashfs/var/run/dbus/
+
+sudo cp /etc/resolv.conf ./squashfs/etc/resolv.conf
+sudo cp /etc/hosts ./squashfs/etc/hosts
+
+sed -i -e 's/# deb/deb/g' ./squashfs/etc/apt/sources.list
+
+clear
+echo Now you are in the chroot filesystem. Type exit for quit.
+echo Before quit do not forget the \'sudo apt-get clean\' !
+
+sudo xhost +
+sudo chroot ./squashfs
+sudo chroot ./squashfs
+sudo chroot ./squashfs
+sudo xhost -
+
+sudo rm -Rf ./squashfs/var/crash/* ./squashfs/var/cache/*
+
+umount ./squashfs/sys
+umount ./squashfs/proc
+umount ./squashfs/dev/pts
+umount ./squashfs/dev
+
+sudo rm ./squashfs/etc/resolv.conf ./squashfs/etc/hosts
+
+clear
+echo Type \'update-initramfs -k all -u\' and \'quit\'
+
+sudo chroot ./squashfs
+
+cd squashfs
+
+sudo rm ../iso/casper/filesystem.squashfs
+
+clear
+echo Do you want compress the squashfs ? [Y/n]
+read Q
+if [ "$Q" == "Y" ]
+then
+	{
+		clear
+		echo With compression do you want ?
+		echo [gzip/lzo/xz/LZMA]
+		read COMP
+		sudo mksquashfs . ../iso/casper/filesystem.squashfs -info -comp $COMP -b 1048576
+	}
+else
+	{
+		sudo mksquashfs . ../iso/casper/filesystem.squashfs -info
+	}
+fi
+
+cd ../iso
+sudo bash -c "find . -path ./isolinux -prune -o -type f -not -name md5sum.txt -print0 | xargs -0 md5sum | tee md5sum.txt"
+
+sudo mkisofs -U -A "$VNAME" -V "$VNAME" -volset "$VNAME" -J -joliet-long -r -v -T -o ../$ISO.iso  -b isolinux/isolinux.bin -c isolinux/boot.cat -no-emul-boot -boot-load-size 4 -boot-info-table -eltorito-alt-boot -e boot/grub/efi.img -no-emul-boot .
+
